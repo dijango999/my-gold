@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.20',
+  version: '1.0.21',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -545,6 +545,7 @@ function convert(amount, from, to, rs = S.rates) {
 const costIn = (it, c = cur()) => it.pricePaid ? convert(+it.pricePaid, it.currency || c, c, it.buyRate || S.rates) : null;
 /** Market value of the gold on the day it was bought. */
 function marketThen(it, c = cur()) {
+  if (+it.billRate > 0 && (it.currency || 'AED') === c) return netWeight(it) * +it.billRate;   // the rate printed on the bill is the real rate that day
   const h = it.localThen || S.local?.history?.[it.purchaseDate], L = c === 'AED' ? h?.uae : c === 'INR' ? h?.kerala : null;
   if (L?.[24]) return netWeight(it) * (L[+it.karat] || L[24] * purityOf(it) / 0.999);
   const r = it.buyRate; if (!r) return null;
@@ -992,8 +993,17 @@ function openItem(id) {
       <div class="box"><div class="k">Worth today · ${marketName(c)}</div><div class="v num">${money(v, c, 0)}</div>${(() => { const o = otherCur(c), ov = valueNow(it, o); return ov != null ? `<div class="small muted num">${o === 'INR' ? 'Kerala' : 'UAE'}: ${money(ov, o, 0)}</div>` : ''; })()}</div>
       <div class="box"><div class="k">You paid</div><div class="v num">${cst != null ? money(cst, c, 0) : '–'}</div>${cst != null && it.currency && it.currency !== c ? `<div class="small muted num">${money(+it.pricePaid, it.currency, 0)}</div>` : ''}</div>
       <div class="box"><div class="k">Gain</div><div class="v num ${gain >= 0 ? 'up' : 'down'}">${gain != null ? (gain >= 0 ? '+' : '') + money(gain, c, 0) : '–'}</div>${gain != null && cst ? `<div class="small num ${gain >= 0 ? 'up' : 'down'}">${pct(gain / cst * 100)}</div>` : ''}</div>
-      <div class="box"><div class="k">Gold value on purchase day${(it.localThen || S.local?.history?.[it.purchaseDate]) && c !== 'USD' ? ' · ' + marketName(c) + ' rate' : ''}</div><div class="v num">${then != null ? money(then, c, 0) : '–'}</div>${then != null && cst ? `<div class="small muted num">Paid ${pct((cst - then) / then * 100)} over gold value</div>` : ''}</div>
+      <div class="box"><div class="k">Gold value on purchase day${+it.billRate > 0 && (it.currency || 'AED') === c ? ' · bill rate' : ((it.localThen || S.local?.history?.[it.purchaseDate]) ? ' · ' + marketName(c) + ' rate' : '')}</div><div class="v num">${then != null ? money(then, c, 0) : '–'}</div>${then != null && cst ? `<div class="small muted num">Paid ${pct((cst - then) / then * 100)} over gold value</div>` : ''}</div>
     </div>
+    ${(() => { if (cst == null || then == null || v == null) return ''; const prem = cst - then, move = v - then; if (Math.abs(prem) < 1 && Math.abs(move) < 1) return '';
+      const sg = x => (x >= 0 ? '+' : '−') + money(Math.abs(x), c, 0);
+      return `<div class="card"><h3>Where the difference comes from</h3><dl class="kv">
+        <dt>You paid</dt><dd class="num">${money(cst, c, 0)}</dd>
+        <dt>Gold in it was worth then</dt><dd class="num">${money(then, c, 0)}</dd>
+        <dt>${it.type === 'jewellery' ? 'Making, stones &amp; VAT' : 'Premium &amp; VAT'}</dt><dd class="num down" style="font-weight:700">${sg(-prem)}</dd>
+        <dt>Gold price change since</dt><dd class="num ${move >= 0 ? 'up' : 'down'}" style="font-weight:700">${sg(move)} (${pct(move / then * 100)})</dd>
+        <dt>Result today</dt><dd class="num ${gain >= 0 ? 'up' : 'down'}" style="font-weight:800">${sg(gain)}</dd></dl>
+        <div class="small faint" style="margin-top:8px">${prem > 0 ? `${money(prem, c, 0)} of what you paid went on things that are not gold (making charges, diamonds/stones, VAT), so today’s gold value starts below the price you paid. This is normal for ${it.type === 'jewellery' ? 'jewellery' : 'any gold bought above the market rate'} — the gold itself ${move >= 0 ? 'has gone up' : 'has gone down'}.` : ''}</div></div>`; })()}
     <div class="card"><dl class="kv">
       <dt>Bought</dt><dd>${shortDate(it.purchaseDate)}</dd>
       ${it.shop ? `<dt>From</dt><dd>${esc(it.shop)}</dd>` : ''}
@@ -1158,7 +1168,10 @@ function applyBill(r, idx) {
     const one = r.lines.length === 1;
     const paid = L.guess ? (r.totals.net ?? L.total) : one ? (r.exchange.length ? (r.totals.sale ?? L.total) : (r.totals.net ?? r.totals.sale ?? L.total)) : L.total;
     if (paid > 0) { d.pricePaid = String(paid); found.push('price'); }
-    const vat = L.tax || (one ? r.totals.tax : 0); if (vat > 0) d.vat = String(vat);
+    const okVat = v => v > 0 && v <= (+d.pricePaid || L.total || 0) * 0.3;   // VAT/GST is never more than a fraction of the price
+    let vat = okVat(L.tax) ? L.tax : (one && okVat(r.totals.tax) ? r.totals.tax : 0);
+    if (!vat && L.taxPct > 0 && L.total > 0) vat = +(L.total * L.taxPct / (100 + L.taxPct)).toFixed(2);
+    if (vat > 0) d.vat = String(vat);
     if (r.making && one) d.making = String(r.making);
     if (L.karat && r.rates[L.karat]) { d.billRate = String(r.rates[L.karat]); found.push('rate'); }
     if (L.type !== 'jewellery') d.purpose = 'investment';
