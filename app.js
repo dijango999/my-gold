@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.19',
+  version: '1.0.20',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -929,7 +929,7 @@ function settingsView() {
     </div>
     <div class="card"><h3>AI bill reading · free</h3>
       <div class="small muted">Optional and free. A free Google Gemini key lets AI read photographed bills so no weight, rate or amount is missed. The key stays on this device only. (An Anthropic key also works.)</div>
-      <div class="field"><span>AI key ${ls.get('mg.aiKey') ? '· ✓ saved' : ''}</span><input id="aiKey" type="password" autocomplete="off" autocapitalize="off" placeholder="${ls.get('mg.aiKey') ? '•••••••• (saved)' : 'AIza…'}"></div>
+      <div class="field"><span>AI key ${ls.get('mg.aiKey') ? '· ✓ saved' : ''}</span><input id="aiKey" type="password" autocomplete="off" autocapitalize="off" placeholder="${ls.get('mg.aiKey') ? '•••••••• (saved)' : 'Paste Gemini key'}"></div>
       <div style="display:flex;gap:8px"><button class="btn sec" data-a="ai-save">Save key</button>${ls.get('mg.aiKey') ? '<button class="btn sec" data-a="ai-off">Remove</button>' : ''}</div>
       <div class="small faint" style="margin-top:8px">Get it free, no card: aistudio.google.com → Get API key. Free-tier bills may be used by Google to improve its products — skip the key if that bothers you; the built-in reader works without it.</div></div>
     <div class="card"><h3>Security</h3>
@@ -1374,7 +1374,7 @@ async function onClick(e) {
     case 'addall': startQueue(); break;
     case 'usecash': { readForm(); const c = scanState.result?._cash; if (c != null) { draft.pricePaid = String(c); scanState.msg = 'Price paid set to the cash you paid after old gold.'; scanState.result = { ...scanState.result, _cash: null }; const sb = $('.sb', sheetEl), y = sb?.scrollTop; if (sb) { sb.innerHTML = formHtml(); sb.scrollTop = y; } } break; }
     case 'zcal': { const u = URL.createObjectURL(new Blob([zakatIcs()], { type: 'text/calendar' })); const w = window.open(u, '_blank'); if (!w) { const x = document.createElement('a'); x.href = u; x.download = 'my-gold-zakat.ics'; x.click(); } toast('Opening Calendar…'); break; }
-    case 'ai-save': { const k = ($('#aiKey')?.value || '').trim(); if (!/^(sk-ant-[\w\-]{20,}|AIza[\w\-]{30,})$/.test(k)) { toast('That doesn’t look like a Gemini (AIza…) or Anthropic key'); break; } ls.set('mg.aiKey', k); toast('AI bill reading is on'); render(); break; }
+    case 'ai-save': { const k = ($('#aiKey')?.value || '').trim(); if (!/^[\w\-.]{25,}$/.test(k)) { toast('That doesn’t look like an API key'); break; } ls.set('mg.aiKey', k); toast('AI bill reading is on'); render(); break; }
     case 'ai-off': ls.del('mg.aiKey'); toast('AI bill reading is off'); render(); break;
     case 'signin': signIn(false); break;
     case 'signin-other': signIn(true); break;
