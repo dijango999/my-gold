@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.17',
+  version: '1.0.18',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -42,6 +42,7 @@ const TYPES = {
   bar: { label: 'Bar / Biscuit', plural: 'Bars', icon: '🧈', color: '#B45309' },
   jewellery: { label: 'Jewellery', plural: 'Jewellery', icon: '💍', color: '#DB2777' },
 };
+const CHOICES = ['AED', 'INR'];
 const CURS = { AED: { sym: 'AED ', loc: 'en-AE' }, INR: { sym: '₹', loc: 'en-IN' }, USD: { sym: '$', loc: 'en-US' } };
 const OWNER_COLORS = ['#C99A2E', '#DB2777', '#7C3AED', '#0EA5E9', '#16A34A', '#EA580C'];
 const AED_PER_USD = 3.6725;            // AED has been pegged to the dollar since 1997
@@ -500,7 +501,7 @@ const purityOf = it => +it.purity || (KARATS.find(k => k.k === +it.karat)?.p) ||
 const karatLabel = it => it.karat ? `${it.karat}K` : `${trimZ((purityOf(it) * 1000).toFixed(1))}`;
 const netWeight = it => Math.max(0, (+it.weight || 0) - (it.type === 'jewellery' ? (+it.stoneWeight || 0) : 0));
 const pureGrams = it => netWeight(it) * purityOf(it);
-const cur = () => S.data?.settings?.currency || 'AED';
+const cur = () => { const c = S.data?.settings?.currency; return c === 'INR' ? 'INR' : 'AED'; };
 /** Price of one gram of pure gold now, in currency c (with the local adjustment from Settings). */
 /* Two real markets:
  *   UAE   — Dubai Gold & Jewellery Group style: 24K = spot in AED + small premium; 22K/21K/18K use DJG's own ratios.
@@ -628,11 +629,11 @@ function zakatRule(it) {
   if (S.data?.settings?.zakatMethod === 'hanafi') return { due: true, why: 'Hanafi: all gold jewellery is zakatable' };
   return { due: false, why: 'Jewellery for personal wear — exempt (majority view)' };
 }
-function zakatFor(ownerId) {
+function zakatFor(ownerId, c = cur()) {
   const list = held().filter(i => !ownerId || i.ownerId === ownerId);
   const zl = list.filter(i => zakatRule(i).due), ex = list.filter(i => !zakatRule(i).due);
   const pure = zl.reduce((a, i) => a + pureGrams(i), 0);
-  const value = zl.reduce((a, i) => a + (valueNow(i) || 0), 0);
+  const value = zl.reduce((a, i) => a + (valueNow(i, c) || 0), 0);
   const above = pure >= NISAB_G;
   return { list, zl, ex, pure, value, above, due: above ? value * 0.025 : 0, dueGrams: above ? pure * 0.025 : 0,
     exPure: ex.reduce((a, i) => a + pureGrams(i), 0) };
@@ -713,7 +714,7 @@ function setupView() {
         <button class="linkbtn" data-a="setup-more" style="margin-top:10px">＋ Add another person</button>
       </div>
       <div class="card"><h3>Show amounts in</h3>
-        <div class="pills" id="setupCur">${Object.keys(CURS).map(c => `<button data-cur="${c}" class="${(S.setupCur || 'AED') === c ? 'on' : ''}">${c}</button>`).join('')}</div>
+        <div class="pills" id="setupCur">${CHOICES.map(c => `<button data-cur="${c}" class="${(S.setupCur || 'AED') === c ? 'on' : ''}">${c}</button>`).join('')}</div>
       </div>
       <button class="btn" data-a="setup-done" style="margin-top:18px">Start</button>
       <div class="small faint" style="text-align:center;margin-top:12px">My Gold ${CFG.version}</div>
@@ -858,18 +859,20 @@ function itemsView() {
 /* ---------------- Zakat ---------------- */
 function zakatView() {
   const s = S.data.settings, zd = zakatDate(), c = cur(), nisabVal = pureGramNow(c) == null ? null : NISAB_G * pureGramNow(c);
-  const per = owners().map(o => ({ o, z: zakatFor(o.id) }));
-  const fam = zakatFor(null), combine = !!s.zakatCombine;
+  const o2 = otherCur(c), per = owners().map(o => ({ o, z: zakatFor(o.id), z2: zakatFor(o.id, o2) }));
+  const fam = zakatFor(null), fam2 = zakatFor(null, o2), combine = !!s.zakatCombine;
+  const total2 = combine ? fam2.due : per.reduce((a, x) => a + x.z2.due, 0), n2 = pureGramNow(o2) == null ? null : NISAB_G * pureGramNow(o2);
   const total = combine ? fam.due : per.reduce((a, x) => a + x.z.due, 0), totalG = combine ? fam.dueGrams : per.reduce((a, x) => a + x.z.dueGrams, 0);
   const young = held().filter(i => i.purchaseDate && daysBetween(i.purchaseDate, zd) < HAWL_DAYS && zakatRule(i).due);
   return `
     <div class="hero">
       <div class="lbl">Zakat on gold · ${esc(hijriLabel(zd))}</div>
       <div class="big num">${money(total, c, 0)}</div>
+      <div class="sub num" style="font-size:16px;font-weight:700">${o2 === 'INR' ? '🇮🇳' : '🇦🇪'} ${money(total2, o2, 0)} <span style="font-weight:500;opacity:.8">at ${marketName(o2)} rate</span></div>
       <div class="sub">${total ? `or ${grams(totalG, 2)} of pure gold · ` : ''}${shortDate(zd)} · in ${daysBetween(todayStr(), zd)} days</div>
       <div class="stats">
         <div class="stat"><div class="k">Nisab</div><div class="v num">${NISAB_G} g pure</div></div>
-        <div class="stat" style="grid-column:span 2"><div class="k">Nisab value today</div><div class="v num">${money(nisabVal, c, 0)}</div></div>
+        <div class="stat" style="grid-column:span 2"><div class="k">Nisab value today</div><div class="v num">${money(nisabVal, c, 0)}${n2 != null ? `<div class="small" style="font-weight:500;opacity:.85">${money(n2, o2, 0)}</div>` : ''}</div></div>
       </div>
     </div>
     <div class="card"><h3>How jewellery is treated</h3>
@@ -881,12 +884,12 @@ function zakatView() {
         <span class="hint">You’ll see a reminder here and on Home from the 1st of Ramadan (and 2 weeks before) with the amount due.</span>
         <button class="btn sec" data-a="zcal" style="margin-top:8px">📅 Add reminders to my Calendar</button></div>
     </div>
-    ${per.map(({ o, z }) => `<div class="card">
+    ${per.map(({ o, z, z2 }) => `<div class="card">
       <div class="ph" style="margin-bottom:12px"><span class="av" style="--c:${o.color}">${esc(initials(o.name))}</span><span style="font-weight:700;font-size:16px;flex:1">${esc(o.name)}</span>
         ${z.zl.length ? `<span class="chip ${z.above ? 'gold' : ''}">${z.above ? 'Above nisab' : 'Below nisab'}</span>` : ''}</div>
       <div class="split">
-        <div class="box"><div class="k">Zakatable gold</div><div class="v num">${grams(z.pure, 2)}</div><div class="small muted num">${money(z.value, c, 0)}</div></div>
-        <div class="box"><div class="k">Zakat due</div><div class="v num" style="color:var(--goldInk)">${money(z.due, c, 0)}</div><div class="small muted num">${z.above ? grams(z.dueGrams, 2) + ' pure gold' : 'Nothing due'}</div></div>
+        <div class="box"><div class="k">Zakatable gold</div><div class="v num">${grams(z.pure, 2)}</div><div class="small muted num">${money(z.value, c, 0)} · ${money(z2.value, o2, 0)}</div></div>
+        <div class="box"><div class="k">Zakat due</div><div class="v num" style="color:var(--goldInk)">${money(z.due, c, 0)}</div><div class="small muted num">${z.above ? money(z2.due, o2, 0) + ' · ' + grams(z.dueGrams, 2) + ' pure' : 'Nothing due'}</div></div>
       </div>
       <div class="bar" style="margin-top:12px"><i style="width:${Math.min(100, z.pure / NISAB_G * 100)}%;background:linear-gradient(90deg,var(--gold2),var(--gold))"></i></div>
       <div class="small muted" style="margin-top:5px">${grams(z.pure, 1)} of ${NISAB_G} g nisab${z.ex.length ? ` · ${grams(z.exPure, 1)} pure in exempt jewellery` : ''}</div>
@@ -898,7 +901,7 @@ function zakatView() {
       ${(S.data.zakatLog || []).length ? `<div class="list" style="margin-top:0">${[...S.data.zakatLog].sort((a, b) => cmpText(b.date, a.date)).map(z => `<button class="row" data-a="zdel" data-id="${z.id}"><span class="ic">🌙</span><span class="main"><span class="t">${esc(ownerById(z.ownerId)?.name || 'Family')} · ${esc(hijriLabel(z.date))}</span><span class="s">${shortDate(z.date)}${z.note ? ' · ' + esc(z.note) : ''}</span></span><span class="r num"><b>${money(+z.amount, z.currency)}</b></span></button>`).join('')}</div>`
         : '<div class="small faint">Keep a record of zakat you have given each year.</div>'}
     </div>
-    <div class="note">This is a guide using international gold prices and the common nisab of 85 g of pure gold at 2.5%. Please confirm with a scholar you trust, especially for jewellery and for gold owned by children.</div>`;
+    <div class="note">This is a guide using today’s UAE and Kerala gold rates and the common nisab of 85 g of pure gold at 2.5%. Please confirm with a scholar you trust, especially for jewellery and for gold owned by children.</div>`;
 }
 
 /* ---------------- Settings ---------------- */
@@ -909,8 +912,8 @@ function settingsView() {
       <div class="list" style="margin-top:0">${owners().map(o => `<button class="row" data-a="owner-edit" data-id="${o.id}"><span class="av" style="--c:${o.color};width:34px;height:34px;font-size:13px">${esc(initials(o.name))}</span><span class="main"><span class="t">${esc(o.name)}</span><span class="s">${held().filter(i => i.ownerId === o.id).length} pieces</span></span><span class="faint">›</span></button>`).join('')}</div>
     </div>
     <div class="card"><h3>Show amounts in</h3>
-      <div class="seg">${Object.keys(CURS).map(c => `<button data-setcur="${c}" class="${s.currency === c ? 'on' : ''}">${c}</button>`).join('')}</div>
-      <div class="small faint" style="margin-top:8px">AED values use the UAE rate, INR values the Kerala rate, USD the international price.</div>
+      <div class="seg">${CHOICES.map(c => `<button data-setcur="${c}" class="${s.currency === c ? 'on' : ''}">${c}</button>`).join('')}</div>
+      <div class="small faint" style="margin-top:8px">AED values use the UAE rate and INR values the Kerala rate.</div>
     </div>
     <div class="card" id="calibCard"><h3>Market rates</h3>
       <div class="small muted">UAE rates come from <b>igold.ae</b> and Kerala rates from <b>GoodReturns</b>, checked every 30 minutes.
@@ -1008,6 +1011,8 @@ function openItem(id) {
       <dt>Zakat</dt><dd style="font-weight:500">${esc(zr.why)}</dd>
       ${it.status === 'sold' && +it.soldPrice ? `<dt>Sold for</dt><dd class="num">${money(+it.soldPrice, it.currency)}</dd>` : ''}
     </dl>${it.buyRate ? `<div class="small faint" style="margin-top:8px">Purchase-day price from ${esc(it.buyRate.src)} (${shortDate(it.buyRate.date)}).</div>` : ''}</div>
+    ${(() => { const sib = it.invoiceNo ? S.data.items.filter(x => x.id !== it.id && x.invoiceNo === it.invoiceNo && (x.shop || '') === (it.shop || '')) : [];
+      return sib.length ? `<div class="card"><h3>Same bill · ${esc(it.invoiceNo)}</h3><div class="list" style="margin-top:0">${sib.map(x => `<button class="row" data-a="open" data-id="${x.id}"><span class="ic">${TYPES[x.type]?.icon || '🪙'}</span><span class="main"><span class="t">${esc(x.title)}</span><span class="s">${grams(+x.weight, 2)} · ${karatLabel(x)}</span></span><span class="faint">›</span></button>`).join('')}</div></div>` : ''; })()}
     <div class="card"><h3>Bills &amp; receipts</h3>
       <div class="list" style="margin-top:0">${it.docs.map(d => `<button class="row" data-a="doc" data-did="${d.id}"><span class="thumb" style="width:42px;height:42px;font-size:18px;${d.thumb ? `background-image:url('${tu(d.thumb)}')` : ''}">${d.thumb ? '' : '📄'}</span><span class="main"><span class="t">${esc(d.kind)}</span><span class="s">${esc(d.name)}</span></span><span class="faint">›</span></button>`).join('') || '<div class="empty small">No bill added yet.</div>'}</div>
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -1034,6 +1039,7 @@ function openForm(id, presetOwner) {
     purpose: 'personal', zakat: 'auto', notes: '', photos: [], docs: [], status: 'held',
   };
   draft._newPhotos = []; draft._newDocs = []; draft._isNew = !it; scanState = { busy: false, msg: '', result: null, file: null };
+  if (!openForm.keep) billQueue = null;
   openSheet(it ? 'Edit' : 'Add gold', formHtml(), { right: `<button class="linkbtn" data-a="save">Save</button>` });
 }
 function formHtml() {
@@ -1052,7 +1058,7 @@ function formHtml() {
     </div>
     ${d.type === 'jewellery' ? `<div class="field"><span>Bought on</span><input name="purchaseDate" type="date" value="${esc(d.purchaseDate)}" max="${todayStr()}"></div>` : ''}
     <div class="field"><span>Total paid (including making &amp; VAT)</span><div class="inwrap"><input name="pricePaid" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.pricePaid)}" placeholder="0">
-      <select name="currency">${Object.keys(CURS).map(c => `<option ${d.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
+      <select name="currency">${[...new Set([...CHOICES, d.currency])].filter(Boolean).map(c => `<option ${d.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
     <div class="two">
       <div class="field"><span>Rate on bill (per g)</span><input name="billRate" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.billRate)}" placeholder="optional"></div>
       <div class="field"><span>Making charges</span><input name="making" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(d.making)}" placeholder="optional"></div>
@@ -1078,11 +1084,33 @@ function formHtml() {
 }
 /* ---- fill the form from a bill ---- */
 let scanState = { busy: false, msg: '', result: null, file: null };
+let billQueue = null;
+/** One piece per bill line; "3 coins" on one line becomes three pieces of the single-coin weight and price. */
+function expandLines(r) {
+  const out = [];
+  for (const l of r.lines) {
+    const n = (l.type !== 'jewellery' && l.pcs > 1 && l.pcs <= 20) ? l.pcs : 1;
+    for (let k = 0; k < n; k++) out.push(n === 1 ? l : { ...l, pcs: 1, gross: +(l.gross / n).toFixed(3), net: +(l.net / n).toFixed(3), stones: 0, amount: +(l.amount / n).toFixed(2), tax: +(l.tax / n).toFixed(2), total: +(l.total / n).toFixed(2) });
+  }
+  return out;
+}
+function startQueue() {
+  const r = scanState.result; if (!r?.lines?.length) return;
+  readForm();
+  billQueue = { r, lines: expandLines(r), i: 0, docs: null };
+  fillQueued();
+}
+function fillQueued() {
+  const q = billQueue, L = q.lines[q.i];
+  applyBill({ ...q.r, lines: [L], exchange: q.i === 0 ? q.r.exchange : [], totals: { ...q.r.totals, net: null, sale: null, tax: null }, making: undefined }, 0);
+  scanState.msg = `Piece ${q.i + 1} of ${q.lines.length} from this bill — check it, then Save. The next one opens automatically.`; paintScan();
+}
 function scanBoxHtml() {
   const s = scanState;
   if (s.busy) return `<div class="scanrow"><span class="spin" style="width:18px;height:18px"></span><span>${esc(s.msg || 'Reading bill…')}</span></div>`;
-  const pick = s.result?.lines?.length > 1 ? `<div class="small" style="margin-top:8px;font-weight:700">This bill has ${s.result.lines.length} items — which one is this?</div>
-    <div class="pills" style="margin-top:6px">${s.result.lines.map((l, i) => `<button type="button" data-pick="${i}">${esc(l.title || 'Item ' + (i + 1))} · ${l.karat || ''}K · ${trimZ(l.gross.toFixed(3))} g</button>`).join('')}</div>` : '';
+  const pick = (s.result?.lines?.length > 1 || (s.result?.lines?.length === 1 && expandLines(s.result).length > 1)) ? `<div class="small" style="margin-top:8px;font-weight:700">This bill has ${expandLines(s.result).length} pieces — add them all, or pick the one this is:</div>
+    <div class="pills" style="margin-top:6px">${s.result.lines.map((l, i) => `<button type="button" data-pick="${i}">${esc(l.title || 'Item ' + (i + 1))} · ${l.karat || ''}K · ${trimZ(l.gross.toFixed(3))} g${l.pcs > 1 && l.type !== 'jewellery' ? ' × ' + l.pcs : ''}</button>`).join('')}</div>
+    <button type="button" class="btn" data-a="addall" style="margin-top:10px;padding:10px">➕ Add all ${expandLines(s.result).length} pieces from this bill</button>` : '';
   return `<div class="scanrow"><span style="font-size:22px">🧾</span><span style="flex:1"><b>Fill from bill</b><br><span class="small muted">${esc(s.msg || 'Scan or upload the bill — details are filled in for you to check.')}</span></span></div>${pick}
     <div style="display:flex;gap:8px;margin-top:10px">
       <label class="btn sec" style="flex:1;padding:10px">📷 Scan bill<input type="file" accept="image/*" capture="environment" hidden data-scan="1"></label>
@@ -1172,7 +1200,7 @@ async function saveForm(btn) {
     }
     const photos = [];
     for (const p of d._newPhotos) photos.push(await savePhoto(p.file, owner, title));
-    const docs = [];
+    const docs = d._isNew ? JSON.parse(JSON.stringify(d.docs || [])) : [];
     for (const p of d._newDocs) docs.push(await saveDoc(p.file, owner, title, 'Bill'));
     const clean = {
       id: d.id, ownerId: d.ownerId, type: d.type, title, karat: +d.karat || 0, purity: +d.karat ? undefined : num(d.purity),
@@ -1192,7 +1220,15 @@ async function saveForm(btn) {
         Object.assign(ex, clean, { photos: [...ex.photos.filter(p => keepPhotos.has(p.id)), ...photos], docs: [...ex.docs, ...docs], updatedAt: isoNow() });
       } else data.items.push({ ...clean, photos, docs, createdAt: isoNow(), updatedAt: isoNow() });
     });
-    if (ok) { closeSheet(); toast(d._isNew ? 'Added ✓' : 'Saved ✓'); if (!buyRate && d.purchaseDate) toast('Saved. The gold price for that day could not be found — check your internet.'); openItem(d.id); }
+    if (ok && billQueue && d._isNew && billQueue.i + 1 < billQueue.lines.length) {
+      const q = billQueue; q.docs = q.docs || docs; q.i++;
+      const keepOwner = d.ownerId, keepShop = d.shop, keepNo = d.invoiceNo, keepDate = d.purchaseDate;
+      closeSheet(); openForm.keep = true; openForm(null, keepOwner); openForm.keep = false;
+      billQueue = q; draft.docs = JSON.parse(JSON.stringify(q.docs)); draft.shop = keepShop; draft.invoiceNo = keepNo; draft.purchaseDate = keepDate;
+      scanState = { busy: false, msg: '', result: null, file: null }; fillQueued(); toast(`Piece ${q.i} saved ✓`);
+      document.querySelectorAll('[data-a="save"]').forEach(b => { b.disabled = false; b.textContent = 'Save'; }); return;
+    }
+    if (ok) { if (billQueue) { toast(`All ${billQueue.lines.length} pieces added ✓`); billQueue = null; } closeSheet(); toast(d._isNew ? 'Added ✓' : 'Saved ✓'); if (!buyRate && d.purchaseDate) toast('Saved. The gold price for that day could not be found — check your internet.'); openItem(d.id); }
   } catch (e) { toast(e.message); }
   document.querySelectorAll('[data-a="save"]').forEach(b => { b.disabled = false; b.textContent = 'Save'; });
 }
@@ -1332,6 +1368,7 @@ async function onClick(e) {
     case 'calib': S.tab = 'settings'; ls.set('mg.tab', 'settings'); render(); setTimeout(() => { $('#calibCard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#calK')?.focus(); }, 50); break;
     case 'theme-toggle': ls.set('mg.theme', isDark() ? 'light' : 'dark'); applyTheme(); render(); break;
     case 'lock-settings': lockSettingsSheet(); break;
+    case 'addall': startQueue(); break;
     case 'zcal': { const u = URL.createObjectURL(new Blob([zakatIcs()], { type: 'text/calendar' })); const w = window.open(u, '_blank'); if (!w) { const x = document.createElement('a'); x.href = u; x.download = 'my-gold-zakat.ics'; x.click(); } toast('Opening Calendar…'); break; }
     case 'ai-save': { const k = ($('#aiKey')?.value || '').trim(); if (!/^(sk-ant-[\w\-]{20,}|AIza[\w\-]{30,})$/.test(k)) { toast('That doesn’t look like a Gemini (AIza…) or Anthropic key'); break; } ls.set('mg.aiKey', k); toast('AI bill reading is on'); render(); break; }
     case 'ai-off': ls.del('mg.aiKey'); toast('AI bill reading is off'); render(); break;
@@ -1389,7 +1426,7 @@ async function onClick(e) {
       openSheet('Record zakat paid', `
         <div class="field"><span>For</span><select id="zo"><option value="">Whole family</option>${owners().map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select></div>
         <div class="two"><div class="field"><span>Amount</span><input id="za" type="number" inputmode="decimal" value="${Math.round(S.data.settings.zakatCombine ? zakatFor(null).due : owners().reduce((a, o) => a + zakatFor(o.id).due, 0)) || ''}"></div>
-        <div class="field"><span>Currency</span><select id="zc">${Object.keys(CURS).map(c => `<option ${c === cur() ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
+        <div class="field"><span>Currency</span><select id="zc">${CHOICES.map(c => `<option ${c === cur() ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div>
         <div class="field"><span>Date</span><input id="zdt" type="date" value="${todayStr() < zd ? todayStr() : zd}"></div>
         <div class="field"><span>Note</span><input id="zn" placeholder="e.g. Given through mosque"></div>
         <button class="btn" data-a="zpay-save" style="margin-top:18px">Save</button>`);
