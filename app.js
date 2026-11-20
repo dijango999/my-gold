@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.18',
+  version: '1.0.19',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -1112,6 +1112,7 @@ function scanBoxHtml() {
     <div class="pills" style="margin-top:6px">${s.result.lines.map((l, i) => `<button type="button" data-pick="${i}">${esc(l.title || 'Item ' + (i + 1))} · ${l.karat || ''}K · ${trimZ(l.gross.toFixed(3))} g${l.pcs > 1 && l.type !== 'jewellery' ? ' × ' + l.pcs : ''}</button>`).join('')}</div>
     <button type="button" class="btn" data-a="addall" style="margin-top:10px;padding:10px">➕ Add all ${expandLines(s.result).length} pieces from this bill</button>` : '';
   return `<div class="scanrow"><span style="font-size:22px">🧾</span><span style="flex:1"><b>Fill from bill</b><br><span class="small muted">${esc(s.msg || 'Scan or upload the bill — details are filled in for you to check.')}</span></span></div>${pick}
+    ${s.result?._cash != null ? `<button type="button" class="btn sec" data-a="usecash" style="margin-top:8px;padding:9px">Use cash paid (${esc(money(s.result._cash, s.result.currency || draft.currency, 2))}) instead</button>` : ''}
     <div style="display:flex;gap:8px;margin-top:10px">
       <label class="btn sec" style="flex:1;padding:10px">📷 Scan bill<input type="file" accept="image/*" capture="environment" hidden data-scan="1"></label>
       <label class="btn sec" style="flex:1;padding:10px">📎 Photo / PDF<input type="file" accept="image/*,application/pdf" hidden data-scan="1"></label></div>`;
@@ -1170,8 +1171,10 @@ function applyBill(r, idx) {
     found.push('old-gold exchange');
   }
   if (!L && r.totals.net > 0 && !d.pricePaid) { d.pricePaid = String(r.totals.net); found.push('price'); }
-  scanState.msg = (r.aiNote || '') + (r.ai ? '🤖 ' : '') + (L ? '✓ Filled ' : '✓ Found ') + found.join(', ') + (L || !r.lines.length ? ' — please check before saving.' : '') + (!L && !r.lines.length ? ' Couldn’t find the weight — please type it.' : '');
-  if (L) scanState.result = { ...r, lines: [] };   // choice made
+  const cashNote = L && r.exchange.length && r.totals.net != null ? ` Price paid is the value of the new gold (${money(+d.pricePaid, r.currency || d.currency, 2)}); you paid ${money(r.totals.net, r.currency || d.currency, 2)} after old gold.` : '';
+  scanState.cash = L && r.exchange.length && r.totals.net != null ? r.totals.net : null;
+  scanState.msg = (r.aiNote || '') + (r.ai ? '🤖 ' : '') + (L ? '✓ Filled ' : '✓ Found ') + found.join(', ') + (L || !r.lines.length ? ' — please check before saving.' : '') + cashNote + (!L && !r.lines.length ? ' Couldn’t find the weight — please type it.' : '');
+  if (L) scanState.result = { ...r, lines: [], _cash: scanState.cash };   // choice made
   const sb = $('.sb', sheetEl), y = sb?.scrollTop; if (sb) { sb.innerHTML = formHtml(); sb.scrollTop = y; }
 }
 
@@ -1369,6 +1372,7 @@ async function onClick(e) {
     case 'theme-toggle': ls.set('mg.theme', isDark() ? 'light' : 'dark'); applyTheme(); render(); break;
     case 'lock-settings': lockSettingsSheet(); break;
     case 'addall': startQueue(); break;
+    case 'usecash': { readForm(); const c = scanState.result?._cash; if (c != null) { draft.pricePaid = String(c); scanState.msg = 'Price paid set to the cash you paid after old gold.'; scanState.result = { ...scanState.result, _cash: null }; const sb = $('.sb', sheetEl), y = sb?.scrollTop; if (sb) { sb.innerHTML = formHtml(); sb.scrollTop = y; } } break; }
     case 'zcal': { const u = URL.createObjectURL(new Blob([zakatIcs()], { type: 'text/calendar' })); const w = window.open(u, '_blank'); if (!w) { const x = document.createElement('a'); x.href = u; x.download = 'my-gold-zakat.ics'; x.click(); } toast('Opening Calendar…'); break; }
     case 'ai-save': { const k = ($('#aiKey')?.value || '').trim(); if (!/^(sk-ant-[\w\-]{20,}|AIza[\w\-]{30,})$/.test(k)) { toast('That doesn’t look like a Gemini (AIza…) or Anthropic key'); break; } ls.set('mg.aiKey', k); toast('AI bill reading is on'); render(); break; }
     case 'ai-off': ls.del('mg.aiKey'); toast('AI bill reading is off'); render(); break;

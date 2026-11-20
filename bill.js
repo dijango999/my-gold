@@ -243,6 +243,8 @@ Rules: weights in grams (gross = with stones, net = gold weight); amounts are pl
       }
     }
 
+    // Everything between the "Adjustment" heading and the "Total Sale" row is old gold given back — never the purchase.
+    const adj = new Set(); { let on = false; lines.forEach((l, i) => { if (/^adjust(ment)?s?\b|^old\s*gold\s*(exchange|details)?$|^exchange\b/i.test(l)) on = true; else if (/^(total|grand|net\s*total)/i.test(l)) on = false; if (on) adj.add(i); }); }
     // Item lines: weights (3 decimals) and money (2 decimals) on the same line.
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
@@ -259,7 +261,7 @@ Rules: weights in grams (gross = with stones, net = gold weight); amounts are pl
       const before = [lines[i - 2], lines[i - 1], l].filter(Boolean).join(' ');
       const named = [l, lines[i - 1], lines[i - 2]].find(x => x && ITEM_WORDS.test(x)) || '';
       if (m2.length < 2 && !named) continue;   // spec lines such as diamond details
-      const neg = w3.some(n => n.v < 0) || m2.some(n => n.v < 0) || OLD.test([lines[i - 1], l].join(' '));
+      const neg = adj.has(i) || adj.has(i - 1) && !ITEM_WORDS.test(l) || w3.some(n => n.v < 0) || m2.some(n => n.v < 0) || OLD.test([lines[i - 1], l].join(' '));
       // drop the rate written as "218.50 @ code"
       const at = /(\d[\d,]*\.\d{2})\s*@/.exec(l); let money = m2.map(n => Math.abs(n.v));
       if (at) { const rv = +at[1].replace(/,/g, ''); const k = money.indexOf(rv); if (k >= 0) money.splice(k, 1); }
@@ -284,8 +286,8 @@ Rules: weights in grams (gross = with stones, net = gold weight); amounts are pl
     const tot0 = re => { const l = lines.filter(l => re.test(l) && numbers(l).length).pop(); if (!l) return null; const n = numbers(l).filter(n => n.dec === 2 || n.v >= 100); return n.length ? n[n.length - 1].v : null; };
     if (!r.lines.length) {
       let G = 0, N = 0; const any = [];
-      lines.forEach(l => {
-        if (OLD.test(l) && !ITEM_WORDS.test(l)) return;
+      lines.forEach((l, li) => {
+        if (adj.has(li) || OLD.test(l)) return;
         const hasG = /\b(gross|gr|g\.?\s*wt)\b/i.test(l), hasN = /\b(net|nt|n\.?\s*wt)\b/i.test(l);
         const unit = /\b(gms?|grams?|g)\b/i.test(l) || /\d\s*g\b/i.test(l), lab = hasG || hasN || /\b(wt|weight|wgt)\b/i.test(l);
         if (!lab && !unit) return;
