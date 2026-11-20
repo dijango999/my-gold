@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.16',
+  version: '1.0.17',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -733,6 +733,34 @@ function ratesStrip() {
     <div class="mkt"><span>🇮🇳 Kerala rate</span><span class="faint">${K ? `GoodReturns · ${shortDate(K.date)}` : est}</span></div><div class="rates">${ker}</div>
     <div class="small faint" style="margin-top:6px">${r ? `World price ${money(r.usd, 'USD', 0)}/oz · ${esc(when)}${fx ? ` · 1 AED = ₹${fx.toFixed(2)}` : ''} · before VAT/GST &amp; making` : 'Getting today’s gold price…'}${S.ratesErr ? ` · <span style="color:var(--bad)">${esc(S.ratesErr)}</span>` : ''}</div>`;
 }
+
+/** Overall money put in, what it is worth today, and the profit year by year (by purchase year) — as of today's date. */
+function investCard(all, c) {
+  const priced = all.filter(i => i.pricePaid && costIn(i) != null);
+  if (!priced.length) return '';
+  const T = totals(priced), today = todayStr();
+  const years = {}; for (const i of priced) (years[(i.purchaseDate || '').slice(0, 4) || '—'] ||= []).push(i);
+  const rows = Object.keys(years).sort().map(y => ({ y, n: years[y].length, t: totals(years[y]) }));
+  // average holding time weighted by money, and the yearly rate of return that implies
+  let w = 0, ws = 0; for (const i of priced) { if (!i.purchaseDate) continue; const k = costIn(i) || 0; w += k; ws += k * Math.max(0, daysBetween(i.purchaseDate, today)) / 365.25; }
+  const avgY = w ? ws / w : 0, cagr = avgY >= 0.25 && T.cost > 0 && T.value > 0 ? (Math.pow(T.value / T.cost, 1 / avgY) - 1) * 100 : null;
+  const unpriced = all.length - priced.length, cls = v => v >= 0 ? 'up' : 'down', sg = v => (v >= 0 ? '+' : '−') + money(Math.abs(v), c, 0);
+  return `<div class="card"><h3>My investment <span class="grow"></span><span class="small faint" style="text-transform:none;letter-spacing:0;font-weight:500">as of ${shortDate(today)}</span></h3>
+    <div class="two" style="gap:10px">
+      <div><div class="small muted">Total invested</div><div class="serif num" style="font-size:22px;font-weight:700">${money(T.cost, c, 0)}</div></div>
+      <div><div class="small muted">Worth today</div><div class="serif num" style="font-size:22px;font-weight:700">${money(T.value, c, 0)}</div></div></div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin:12px 0 4px;flex-wrap:wrap"><span class="small muted">Profit so far</span>
+      <span class="serif num ${cls(T.gain)}" style="font-size:24px;font-weight:800">${sg(T.gain)}</span><span class="chip ${T.gain >= 0 ? 'good' : 'bad'}">${pct(T.gainPct)}</span></div>
+    ${cagr != null ? `<div class="small muted">≈ <b class="${cls(cagr)}">${pct(cagr)}</b> a year, over about ${trimZ(avgY.toFixed(1))} years on average</div>` : ''}
+    <div style="margin-top:12px;border-top:1px solid var(--line)">
+      <div class="small faint" style="display:grid;grid-template-columns:52px 1fr 1fr 1fr;gap:6px;padding:8px 0 4px;font-weight:700"><span>Year</span><span style="text-align:right">Invested</span><span style="text-align:right">Worth now</span><span style="text-align:right">Profit</span></div>
+      ${rows.map(r => `<div class="num" style="display:grid;grid-template-columns:52px 1fr 1fr 1fr;gap:6px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px;align-items:center">
+        <span style="font-weight:700">${esc(r.y)}</span><span style="text-align:right">${moneyK(r.t.cost, c)}</span><span style="text-align:right">${moneyK(r.t.value, c)}</span>
+        <span class="${cls(r.t.gain)}" style="text-align:right;font-weight:700">${r.t.gain >= 0 ? '+' : '−'}${moneyK(Math.abs(r.t.gain), c)}<br><span style="font-weight:500;font-size:11.5px">${pct(r.t.gainPct)}</span></span></div>`).join('')}
+      <div class="num" style="display:grid;grid-template-columns:52px 1fr 1fr 1fr;gap:6px;padding:8px 0 0;border-top:2px solid var(--line);font-size:13.5px;font-weight:800;align-items:center">
+        <span>All</span><span style="text-align:right">${moneyK(T.cost, c)}</span><span style="text-align:right">${moneyK(T.value, c)}</span><span class="${cls(T.gain)}" style="text-align:right">${T.gain >= 0 ? '+' : '−'}${moneyK(Math.abs(T.gain), c)}</span></div></div>
+    <div class="small faint" style="margin-top:8px">Grouped by the year each piece was bought. Prices paid are converted at the rate of the purchase day; today’s value uses ${marketName(c)} rates, before making charges and tax.${unpriced ? ` ${unpriced} piece${unpriced === 1 ? ' has' : 's have'} no price entered and ${unpriced === 1 ? 'is' : 'are'} left out.` : ''}</div></div>`;
+}
 function homeView() {
   const all = held(), t = totals(all), c = cur();
   if (!all.length) return `${ratesStrip()}
@@ -759,6 +787,7 @@ function homeView() {
         <div class="stat"><div class="k">Return</div><div class="v num ${t.gain >= 0 ? 'up' : 'down'}">${t.costKnown ? pct(t.gainPct) : '–'}</div></div>
       </div>
     </div>
+    ${investCard(all, c)}
     ${ratesStrip()}
     <div class="people">${owners().map(o => { const ot = totals(all.filter(i => i.ownerId === o.id));
       return `<button class="person" data-a="owner" data-id="${o.id}">
