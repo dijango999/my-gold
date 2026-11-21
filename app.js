@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.22',
+  version: '1.0.23',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -38,13 +38,13 @@ const KARATS = [
   { k: 18, p: 0.750, label: '18K' }, { k: 14, p: 0.585, label: '14K' },
 ];
 const TYPES = {
-  coin: { label: 'Coin', plural: 'Coins', icon: '🪙', color: '#D4A017' },
-  bar: { label: 'Bar / Biscuit', plural: 'Bars', icon: '🧈', color: '#B45309' },
-  jewellery: { label: 'Jewellery', plural: 'Jewellery', icon: '💍', color: '#DB2777' },
+  coin: { label: 'Coin', plural: 'Coins', icon: '🪙', color: '#B69145' },
+  bar: { label: 'Bar / Biscuit', plural: 'Bars', icon: '🧈', color: '#8E7035' },
+  jewellery: { label: 'Jewellery', plural: 'Jewellery', icon: '💍', color: '#D6B76B' },
 };
 const CHOICES = ['AED', 'INR'];
 const CURS = { AED: { sym: 'AED ', loc: 'en-AE' }, INR: { sym: '₹', loc: 'en-IN' }, USD: { sym: '$', loc: 'en-US' } };
-const OWNER_COLORS = ['#C99A2E', '#DB2777', '#7C3AED', '#0EA5E9', '#16A34A', '#EA580C'];
+const OWNER_COLORS = ['#B69145', '#C65B5B', '#7A6FA0', '#5B7C99', '#1C7B62', '#8E7035'];
 const AED_PER_USD = 3.6725;            // AED has been pegged to the dollar since 1997
 
 /* ---------------- helpers ---------------- */
@@ -775,7 +775,7 @@ function homeView() {
   const zDue = zakatDueTotal(), zd = zakatDate();
   const byType = Object.keys(TYPES).map(k => ({ k, v: totals(all.filter(i => i.type === k)) })).filter(x => x.v.count);
   const byKarat = [...new Set(all.map(karatLabel))].map(l => ({ l, v: totals(all.filter(i => karatLabel(i) === l)) })).sort((a, b) => b.v.value - a.v.value);
-  const KC = ['#D4A017', '#B45309', '#EAB308', '#A16207', '#F59E0B', '#78350F'];
+  const KC = ['#B69145', '#8E7035', '#D6B76B', '#6E5526', '#E3CE8F', '#4B3A1A'];
   const recent = [...all].sort((a, b) => cmpText(b.createdAt || '', a.createdAt || '')).slice(0, 4);
   return `
     ${ramadanBanner()}
@@ -1616,7 +1616,7 @@ function showLock() {
       ${L.bio ? `<button data-k="bio" aria-label="Unlock with ${bioName()}">${bioName() === 'Face ID' ? '🙂' : '👆'}</button>` : '<span></span>'}
       <button data-k="0">0</button><button data-k="del" aria-label="Delete">⌫</button></div>
     ${L.bio ? `<button class="linkbtn" data-k="bio">Unlock with ${bioName()}</button>` : ''}
-    <button class="linkbtn" data-k="forgot" style="color:#A8987A">Forgot passcode?</button>`;
+    <button class="linkbtn" data-k="forgot" style="color:#8F9C95">Forgot passcode?</button>`;
   document.body.appendChild(el);
   el.addEventListener('click', onLockKey);
   if (L.bio) setTimeout(() => tryBio(), 350);
