@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.21',
+  version: '1.0.22',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -105,6 +105,7 @@ const S = {
   phase: 'loading',                 // loading | welcome | needsignin | folder | setup | ready
   tab: ls.get('mg.tab') || 'home',
   f: { owner: '', type: '', q: '', sort: ls.get('mg.sort') || 'newest', sold: false },
+  sel: new Set(), selMode: false,
   sync: { state: 'idle', at: null, msg: '' },
   rates: lsJSON('mg.rates'), ratesBusy: false, ratesErr: '', local: lsJSON('mg.local'),
 };
@@ -678,7 +679,7 @@ function renderNow() {
       ${S.tab === 'home' ? `<button class="iconbtn" data-a="refresh" title="Refresh prices">${S.ratesBusy ? '<span class="spin" style="width:16px;height:16px"></span>' : '↻'}</button>` : ''}
     </div><div class="sync" id="syncline">${syncLine()}</div></header>
     <main>${body}</main>
-    ${S.tab === 'settings' || S.tab === 'zakat' ? '' : `<button class="fab" data-a="add"><span style="font-size:19px;line-height:1">＋</span> Add gold</button>`}
+    ${S.tab === 'settings' || S.tab === 'zakat' || (S.tab === 'items' && S.selMode) ? '' : `<button class="fab" data-a="add"><span style="font-size:19px;line-height:1">＋</span> Add gold</button>`}
     <nav class="tabs">${TABS.map(([k, l]) => `<button data-tab="${k}" class="${S.tab === k ? 'on' : ''}">${ICON[k]}<span>${l}</span></button>`).join('')}</nav>`;
   if (html !== _last || !app.firstElementChild) { app.innerHTML = html; _last = html; window.scrollTo(0, sy); }
 }
@@ -819,11 +820,47 @@ function homeView() {
       <div>${recent.map(itemRow).join('')}</div></div>`;
 }
 
+
+/* ---------------- Sell calculator ---------------- */
+const selItems = () => (S.data.items || []).filter(i => S.sel.has(i.id) && i.status === 'held');
+const dedPct = () => +(ls.get('mg.ded') || 0);
+/** What a piece would fetch today in one market: gold content × that market's rate, less the jeweller's deduction on jewellery. */
+function sellValue(it, c, ded = dedPct()) { const v = valueNow(it, c); return v == null ? null : v * (it.type === 'jewellery' ? 1 - ded / 100 : 1); }
+function sellTotals(c, ded = dedPct()) { const L = selItems(); return { value: L.reduce((a, i) => a + (sellValue(i, c, ded) || 0), 0), cost: L.reduce((a, i) => a + (costIn(i, c) || 0), 0), pure: L.reduce((a, i) => a + pureGrams(i), 0), net: L.reduce((a, i) => a + netWeight(i), 0), n: L.length }; }
+function sellBar() {
+  const a = sellTotals('AED'), r = sellTotals('INR');
+  return `<button class="selbar" data-a="sellcalc"><span class="n">${a.n} selected · ${grams(a.pure, 2)} pure</span>
+    <span class="vals num"><b>${money(a.value, 'AED', 0)}</b> <span class="faint">UAE</span> · <b>${money(r.value, 'INR', 0)}</b> <span class="faint">India</span></span><span class="go">Details ›</span></button>`;
+}
+function sellSheetHtml() {
+  const L = selItems(), ded = dedPct(), A = sellTotals('AED'), R = sellTotals('INR');
+  const hasJ = L.some(i => i.type === 'jewellery'), gl = (t, c) => t.cost ? t.value - t.cost : null;
+  const pr = (g, c) => g == null ? '' : `<span class="${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '+' : '−'}${money(Math.abs(g), c, 0)}</span>`;
+  return `<div class="split">
+      <div class="box"><div class="k">Sell in UAE</div><div class="v num">${money(A.value, 'AED', 0)}</div><div class="small num">${A.cost ? 'Paid ' + money(A.cost, 'AED', 0) + ' · ' : ''}${pr(gl(A, 'AED'), 'AED')}</div></div>
+      <div class="box"><div class="k">Sell in India (Kerala)</div><div class="v num">${money(R.value, 'INR', 0)}</div><div class="small num">${R.cost ? 'Paid ' + money(R.cost, 'INR', 0) + ' · ' : ''}${pr(gl(R, 'INR'), 'INR')}</div></div></div>
+    <div class="card" style="margin-top:12px"><h3>${A.n} piece${A.n === 1 ? '' : 's'} · ${grams(A.net, 3)} gold · ${grams(A.pure, 3)} pure</h3>
+      <div class="list" style="margin-top:0">${L.map(i => `<div class="row" style="cursor:default"><span class="main"><span class="t">${esc(i.title || TYPES[i.type]?.label)}</span>
+        <span class="s"><span class="chip gold">${esc(karatLabel(i))}</span> ${grams(netWeight(i), 3)}${i.type === 'jewellery' && ded ? ` · −${ded}% jeweller` : ''}</span></span>
+        <span class="r"><div class="a num">${money(sellValue(i, 'AED'), 'AED', 0)}</div><div class="b num muted">${money(sellValue(i, 'INR'), 'INR', 0)}</div></span></div>`).join('')}</div></div>
+    ${hasJ ? `<div class="card"><h3>Jeweller’s deduction on jewellery</h3>
+      <div class="seg">${[0, 3, 5, 8, 10].map(p => `<button data-ded="${p}" class="${ded === p ? 'on' : ''}">${p}%</button>`).join('')}</div>
+      <div class="small faint" style="margin-top:8px">Shops often pay less than the gold rate for jewellery (wastage, stones, making). Coins and bars are never reduced. Set what your jeweller usually deducts.</div></div>` : ''}
+    <div class="small faint" style="margin:4px 4px 0">Gold content × today’s ${marketName('AED')} / ${marketName('INR')} rate, before any selling charges, tax or stones. Selling in India uses the Kerala rate.</div>`;
+}
+function openSellCalc() {
+  if (!selItems().length) return;
+  openSheet('If sold today', sellSheetHtml(), { onClose: () => render() });
+}
+function refreshSellSheet() { const sb = sheetEl?.querySelector('.sb'); if (sb) { const y = sb.scrollTop; sb.innerHTML = sellSheetHtml(); sb.scrollTop = y; } }
+
 /* ---------------- Collection ---------------- */
-function itemRow(it) {
+function itemRow(it, pick = S.selMode) {
   const o = ownerById(it.ownerId), v = valueNow(it), cst = costIn(it), gain = v != null && cst ? v - cst : null;
   const ph = it.photos?.[0]?.thumb;
-  return `<button class="row" data-a="open" data-id="${it.id}">
+  const on = S.sel.has(it.id);
+  return `<button class="row${pick && on ? ' picked' : ''}" data-a="${pick ? 'tsel' : 'open'}" data-id="${it.id}">
+    ${pick ? `<span class="tick${on ? ' on' : ''}">${on ? '✓' : ''}</span>` : ''}
     <span class="thumb" style="${ph ? `background-image:url('${tu(ph)}')` : ''}">${ph ? '' : TYPES[it.type]?.icon || '🪙'}</span>
     <span class="main"><span class="t">${esc(it.title || TYPES[it.type]?.label)}</span>
       <span class="s"><span class="chip gold">${esc(karatLabel(it))}</span> ${grams(+it.weight, 3)} · ${esc(o?.name || '–')}${it.status !== 'held' ? ` · <b>${it.status === 'sold' ? 'Sold' : 'Gifted'}</b>` : ''}</span></span>
@@ -853,8 +890,12 @@ function itemsView() {
     ${!f.sold && list.length ? `<div class="split" style="margin-top:12px">
       <div class="box"><div class="k">Value today</div><div class="v num">${money(t.value, cur(), 0)}</div></div>
       <div class="box"><div class="k">Weight · pure</div><div class="v num">${grams(t.gross, 2)} <span class="small muted">${grams(t.pure, 2)}</span></div></div></div>` : ''}
-    <div class="list">${list.map(itemRow).join('') || `<div class="empty">${f.sold ? 'Nothing sold or gifted.' : (S.data.items.length ? 'Nothing matches.' : 'No gold added yet.')}</div>`}</div>
-    <div style="text-align:center;margin-top:12px"><button class="linkbtn" data-a="toggle-sold">${f.sold ? '‹ Back to gold we hold' : 'Show sold & gifted'}</button></div>`;
+    ${!f.sold && list.length ? `<div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button class="btn sec" data-a="selmode" style="padding:9px 14px;flex:none;width:auto;margin:0;display:inline-flex;white-space:nowrap">${S.selMode ? 'Done' : '☑︎ Select &amp; sell'}</button>
+      ${S.selMode ? `<button class="linkbtn" data-a="selall">${list.every(i => S.sel.has(i.id)) ? 'Clear all' : 'Select all'}</button>` : '<span class="small faint" style="line-height:1.25">See what pieces fetch if sold today</span>'}</div>` : ''}
+    <div class="list">${list.map(i => itemRow(i)).join('') || `<div class="empty">${f.sold ? 'Nothing sold or gifted.' : (S.data.items.length ? 'Nothing matches.' : 'No gold added yet.')}</div>`}</div>
+    ${S.selMode && S.sel.size ? sellBar() : ''}
+    <div style="text-align:center;margin-top:12px${S.selMode && S.sel.size ? ';padding-bottom:70px' : ''}"><button class="linkbtn" data-a="toggle-sold">${f.sold ? '‹ Back to gold we hold' : 'Show sold & gifted'}</button></div>`;
 }
 
 /* ---------------- Zakat ---------------- */
@@ -1359,6 +1400,7 @@ async function onClick(e) {
   if (tab) { closeSheet(); S.tab = tab.dataset.tab; render(); return; }
 
   // filters
+  const dd = t.closest('[data-ded]'); if (dd) { ls.set('mg.ded', dd.dataset.ded); refreshSellSheet(); return; }
   const fo = t.closest('[data-fo]'); if (fo) { S.f.owner = fo.dataset.fo; render(); return; }
   const ft = t.closest('[data-ft]'); if (ft) { S.f.type = ft.dataset.ft; render(); return; }
   // form pills
@@ -1402,7 +1444,11 @@ async function onClick(e) {
     case 'save': saveForm(a); break;
     case 'owner': S.f.owner = id; S.tab = 'items'; ls.set('mg.tab', 'items'); window.scrollTo(0, 0); render(); break;
     case 'refresh': refreshRates(true); pull(); break;
-    case 'toggle-sold': S.f.sold = !S.f.sold; render(); break;
+    case 'toggle-sold': S.f.sold = !S.f.sold; S.selMode = false; S.sel.clear(); render(); break;
+    case 'selmode': S.selMode = !S.selMode; if (!S.selMode) S.sel.clear(); render(); break;
+    case 'selall': { const L = filteredItems(); if (L.every(i => S.sel.has(i.id))) S.sel.clear(); else L.forEach(i => S.sel.add(i.id)); render(); break; }
+    case 'tsel': S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id); render(); break;
+    case 'sellcalc': openSellCalc(); break;
     case 'photo': { const it = S.data.items.find(i => i.id === sheetEl?.dataset.item); const p = it?.photos.find(x => x.id === a.dataset.pid); if (p) showPhoto(p); break; }
     case 'doc': { const it = S.data.items.find(i => i.id === sheetEl?.dataset.item); const d = it?.docs.find(x => x.id === a.dataset.did); if (d) openDoc(d); break; }
     case 'dispose': {
