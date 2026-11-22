@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.24',
+  version: '1.0.25',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -423,6 +423,27 @@ async function showPhoto(p) {
     catch (e) { toast('Showing the preview — full photo needs internet.'); }
   }
 }
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js', PDFJS_W = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+async function renderPdf(blob, box, url) {
+  try {
+    if (!window.pdfjsLib) await new Promise((ok, no) => { const sc = document.createElement('script'); sc.src = PDFJS; sc.onload = ok; sc.onerror = () => no(new Error('pdf')); document.head.appendChild(sc); });
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([await (await fetch(PDFJS_W)).text()], { type: 'text/javascript' })); }
+      catch { pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_W; }
+    }
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+    box.textContent = '';
+    const w = Math.min(box.clientWidth - 20, 900), dpr = Math.min(window.devicePixelRatio || 1, 3);
+    for (let n = 1; n <= pdf.numPages; n++) {
+      const page = await pdf.getPage(n), vp0 = page.getViewport({ scale: 1 }), sc = (w * dpr) / vp0.width, vp = page.getViewport({ scale: sc });
+      const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      c.style.cssText = `width:${w}px;height:auto;max-width:100%;display:block;margin:0 auto 12px;background:#fff;border-radius:6px`;
+      box.appendChild(c); await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    }
+  } catch (e) {
+    box.innerHTML = `<iframe title="Bill" src="${url}" style="width:100%;height:100%;border:0;background:#fff"></iframe>`;
+  }
+}
 async function openDoc(d) {
   if (S.demo) { toast('Sample data — files are only kept when signed in to OneDrive.'); return; }
   toast('Opening bill…');
@@ -433,12 +454,14 @@ async function openDoc(d) {
     blob = new Blob([blob], { type });
     const url = URL.createObjectURL(blob);
     const v = document.createElement('div'); v.className = 'viewer';
-    v.innerHTML = type.startsWith('image/')
-      ? `<img alt="" src="${url}"><button aria-label="Close">✕</button>`
-      : `<iframe title="Bill" src="${url}" style="width:100%;height:100%;border:0;background:#fff"></iframe><a href="${url}" target="_blank" rel="noopener" style="position:absolute;left:14px;top:calc(var(--safet) + 12px);padding:10px 14px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;font-weight:600;text-decoration:none">Open full screen</a><button aria-label="Close">✕</button>`;
+    const closeBtn = '<button aria-label="Close">✕</button>';
+    const link = `<a href="${url}" target="_blank" rel="noopener" style="position:absolute;left:14px;top:calc(var(--safet) + 12px);padding:10px 14px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;font-weight:600;text-decoration:none;z-index:2">Open full screen</a>`;
+    v.innerHTML = type.startsWith('image/') ? `<img alt="" src="${url}">${closeBtn}` : `<div class="pdfpages" style="position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:calc(var(--safet) + 64px) 10px 24px;text-align:center;color:#fff">Loading…</div>${link}${closeBtn}`;
     $('button', v).addEventListener('click', () => { v.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
     if (type.startsWith('image/')) v.addEventListener('click', e => { if (e.target.tagName !== 'A') { v.remove(); } });
     document.body.appendChild(v);
+    if (!type.startsWith('image/')) renderPdf(blob, $('.pdfpages', v), url);
+    return;
   } catch (e) { toast(e.message); }
 }
 async function removeFile(folder, f) {
