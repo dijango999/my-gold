@@ -23,7 +23,7 @@ const CFG = {
   graph: 'https://graph.microsoft.com/v1.0',
   dataFile: 'my-gold.json',
   pointer: 'Apps/My Gold/location.json',
-  version: '1.0.23',
+  version: '1.0.24',
 };
 const CANON = 'https://dijango999.github.io/my-gold/';
 const ON_SITE = location.hostname === 'dijango999.github.io';
@@ -405,8 +405,14 @@ async function saveDoc(file, owner, title, kind) {
   return { id: uuid(), file: name, name: file.name || name, kind, thumb, addedAt: isoNow() };
 }
 async function downloadUrl(rel) {
-  const m = await (await g(item(rel) + '?$select=id,@microsoft.graph.downloadUrl')).json();
-  return m['@microsoft.graph.downloadUrl'];
+  const m = await (await g(item(rel))).json();
+  const u = m['@microsoft.graph.downloadUrl'];
+  if (!u) throw new Error('OneDrive did not return the file. Check it is still in the Bills folder.');
+  return u;
+}
+async function fileBlob(rel) {
+  try { const r = await fetch(await downloadUrl(rel), { cache: 'no-store' }); if (r.ok) return await r.blob(); } catch (e) { if (e instanceof HttpError && e.status !== 0) throw e; }
+  return await (await g(item(rel) + ':/content')).blob();
 }
 async function showPhoto(p) {
   const v = document.createElement('div'); v.className = 'viewer';
@@ -419,9 +425,21 @@ async function showPhoto(p) {
 }
 async function openDoc(d) {
   if (S.demo) { toast('Sample data — files are only kept when signed in to OneDrive.'); return; }
-  const w = window.open('', '_blank');
-  try { const url = await downloadUrl('Bills/' + d.file); if (w) w.location = url; else location.href = url; }
-  catch (e) { w?.close(); toast(e.message); }
+  toast('Opening bill…');
+  try {
+    let blob = await fileBlob('Bills/' + d.file);
+    const ext = (d.file.split('.').pop() || '').toLowerCase();
+    const type = ext === 'pdf' ? 'application/pdf' : /^(jpe?g|png|webp|gif|heic)$/.test(ext) ? 'image/' + (ext === 'jpg' ? 'jpeg' : ext) : blob.type;
+    blob = new Blob([blob], { type });
+    const url = URL.createObjectURL(blob);
+    const v = document.createElement('div'); v.className = 'viewer';
+    v.innerHTML = type.startsWith('image/')
+      ? `<img alt="" src="${url}"><button aria-label="Close">✕</button>`
+      : `<iframe title="Bill" src="${url}" style="width:100%;height:100%;border:0;background:#fff"></iframe><a href="${url}" target="_blank" rel="noopener" style="position:absolute;left:14px;top:calc(var(--safet) + 12px);padding:10px 14px;border-radius:20px;background:rgba(255,255,255,.2);color:#fff;font-weight:600;text-decoration:none">Open full screen</a><button aria-label="Close">✕</button>`;
+    $('button', v).addEventListener('click', () => { v.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
+    if (type.startsWith('image/')) v.addEventListener('click', e => { if (e.target.tagName !== 'A') { v.remove(); } });
+    document.body.appendChild(v);
+  } catch (e) { toast(e.message); }
 }
 async function removeFile(folder, f) {
   if (S.demo) return;
